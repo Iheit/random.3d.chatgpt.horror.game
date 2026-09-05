@@ -3,6 +3,7 @@ project(GrannyHouseCpp LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(RAYLIB_VERSION 5.5)
 
 include(FetchContent)
@@ -13,9 +14,9 @@ FetchContent_Declare(raylib
 )
 FetchContent_MakeAvailable(raylib)
 
-add_executable(granny_house src/main.cpp)
+add_executable(granny_house src/game.cpp)
 target_link_libraries(granny_house PRIVATE raylib)
-if (WIN32)
+if(WIN32)
   target_compile_definitions(granny_house PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
