@@ -7,248 +7,71 @@
 struct Wall { Vector3 p, s; };
 struct Fuse { Vector3 p; bool got = false; };
 
-static float FlatDistance(Vector3 a, Vector3 b) {
-    a.y = b.y = 0;
-    return Vector3Distance(a, b);
+static float Dist(Vector3 a, Vector3 b) { a.y = b.y = 0; return Vector3Distance(a,b); }
+static bool Blocked(Vector3 p, const Wall& w, float r) {
+    return p.x > w.p.x-w.s.x*.5f-r && p.x < w.p.x+w.s.x*.5f+r && p.z > w.p.z-w.s.z*.5f-r && p.z < w.p.z+w.s.z*.5f+r;
 }
-
-static bool HitsWall(Vector3 p, const Wall& w, float r) {
-    return p.x > w.p.x - w.s.x * 0.5f - r && p.x < w.p.x + w.s.x * 0.5f + r &&
-           p.z > w.p.z - w.s.z * 0.5f - r && p.z < w.p.z + w.s.z * 0.5f + r;
+static void Move(Vector3& p, Vector3 v, float r, const std::vector<Wall>& ws) {
+    Vector3 q=p; q.x+=v.x; for(auto&w:ws) if(Blocked(q,w,r)){q.x=p.x;break;} p=q;
+    q=p; q.z+=v.z; for(auto&w:ws) if(Blocked(q,w,r)){q.z=p.z;break;} p=q;
 }
-
-static void MoveWithCollision(Vector3& p, Vector3 v, float radius, const std::vector<Wall>& walls) {
-    Vector3 q = p;
-    q.x += v.x;
-    for (const auto& w : walls) if (HitsWall(q, w, radius)) { q.x = p.x; break; }
-    p = q;
-    q = p;
-    q.z += v.z;
-    for (const auto& w : walls) if (HitsWall(q, w, radius)) { q.z = p.z; break; }
-    p = q;
+static Texture2D Tex(Color a, Color b, int seed) {
+    Image im=GenImageColor(96,96,a); Color* px=LoadImageColors(im); unsigned s=seed*747796405u+2891336453u;
+    for(int y=0;y<96;y++) for(int x=0;x<96;x++){s^=s<<13;s^=s>>17;s^=s<<5; int n=(int)(s&255); if(n>218 || ((x*13+y*7+seed*11)%97)<3) px[y*96+x]=b;}
+    UnloadImage(im); Image out=GenImageColor(96,96,a); UnloadImageColors(px); Color* op=LoadImageColors(out);
+    s=seed*747796405u+2891336453u; for(int y=0;y<96;y++) for(int x=0;x<96;x++){s^=s<<13;s^=s>>17;s^=s<<5; int n=s&255; op[y*96+x]=(n>230)?b:a;}
+    Texture2D t=LoadTextureFromImage(out); UnloadImageColors(op); UnloadImage(out); return t;
 }
-
-static Texture2D MakeTexture(Color base, Color detail, int seed) {
-    Image image = GenImageColor(64, 64, base);
-    Color* pixels = LoadImageColors(image);
-    unsigned int state = (unsigned int)seed * 2654435761u + 17u;
-    for (int y = 0; y < 64; ++y) {
-        for (int x = 0; x < 64; ++x) {
-            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
-            if (((x / 7 + y / 9 + seed) % 3) == 0 || (state & 255u) > 225u)
-                pixels[y * 64 + x] = detail;
-        }
-    }
-    UnloadImage(image);
-    Image finalImage = GenImageColor(64, 64, base);
-    UnloadImageColors(pixels);
-    Color* finalPixels = LoadImageColors(finalImage);
-    for (int i = 0; i < 4096; ++i) finalPixels[i] = (i % 11 == 0) ? detail : base;
-    UnloadImage(finalImage);
-    Image result = GenImageColor(64, 64, base);
-    UnloadImageColors(finalPixels);
-    Texture2D texture = LoadTextureFromImage(result);
-    UnloadImage(result);
-    return texture;
+static Sound Tone(float sec,float hz,float vol) { int n=std::max(1,(int)(sec*22050)); short*d=(short*)MemAlloc(n*sizeof(short)); for(int i=0;i<n;i++){float t=i/22050.f,e=1.f-i/(float)n; d[i]=(short)(sin(2*PI*hz*t)*e*vol*32767);} Wave w{};w.frameCount=n;w.sampleRate=22050;w.sampleSize=16;w.channels=1;w.data=d;Sound s=LoadSoundFromWave(w);UnloadWave(w);return s; }
+static void Box(Texture2D t,Vector3 p,Vector3 s){Mesh m=GenMeshCube(1,1,1);Model md=LoadModelFromMesh(m);md.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture=t;DrawModelEx(md,p,{0,1,0},0,s,WHITE);UnloadModel(md);}
+static void Furniture(Texture2D w,Texture2D c,Texture2D m){
+    Box(w,{-7,0.65f,1.2f},{3.2f,1.3f,1.0f}); Box(w,{-7,1.45f,1.2f},{2.8f,.18f,.9f});
+    for(float x=-8.1f;x<=-5.9f;x+=2.2f) Box(m,{x,.35f,1.2f},{.12f,.7f,.12f});
+    Box(c,{6.6f,.8f,2.2f},{2.6f,1.6f,.9f}); Box(w,{6.6f,1.7f,2.2f},{2.8f,.2f,1.0f});
+    Box(w,{-6.8f,1.0f,12.5f},{2.8f,2.0f,.8f}); Box(c,{-6.8f,2.15f,12.5f},{2.5f,.35f,.72f});
+    Box(m,{6.7f,.75f,12.6f},{1.4f,1.5f,1.2f}); Box(m,{6.7f,1.6f,12.0f},{1.0f,.06f,.06f});
 }
+static void Lamp(Vector3 p){ DrawCylinder(p,.32f,.42f,.12f,16,{45,42,38,255}); DrawCylinder({p.x,p.y+.15f,p.z},.08f,.08f,.35f,12,{70,65,55,255}); DrawSphere({p.x,p.y+.37f,p.z},.28f,{170,155,120,255}); }
 
-static Sound MakeTone(float seconds, float hz, float volume) {
-    int samples = std::max(1, (int)(seconds * 22050.0f));
-    short* data = (short*)MemAlloc((size_t)samples * sizeof(short));
-    for (int i = 0; i < samples; ++i) {
-        float t = (float)i / 22050.0f;
-        float envelope = 1.0f - (float)i / (float)samples;
-        data[i] = (short)(std::sin(2.0f * PI * hz * t) * envelope * volume * 32767.0f);
-    }
-    Wave wave{};
-    wave.frameCount = (unsigned int)samples;
-    wave.sampleRate = 22050;
-    wave.sampleSize = 16;
-    wave.channels = 1;
-    wave.data = data;
-    Sound sound = LoadSoundFromWave(wave);
-    UnloadWave(wave);
-    return sound;
-}
-
-static void SpatialSound(Sound sound, Vector3 source, Vector3 listener, Vector3 right, float maxDistance = 14.0f) {
-    float distance = FlatDistance(source, listener);
-    float volume = Clamp(1.0f - distance / maxDistance, 0.0f, 1.0f);
-    Vector3 direction = { source.x - listener.x, 0, source.z - listener.z };
-    float pan = Vector3Length(direction) > 0.001f ? Vector3DotProduct(Vector3Normalize(direction), right) : 0.0f;
-    SetSoundVolume(sound, volume * 0.45f);
-    SetSoundPan(sound, Clamp(0.5f + pan * 0.35f, 0.0f, 1.0f));
-}
-
-static void DrawTexturedBox(Texture2D texture, Vector3 position, Vector3 size) {
-    Mesh mesh = GenMeshCube(1.0f, 1.0f, 1.0f);
-    Model model = LoadModelFromMesh(mesh);
-    model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
-    DrawModelEx(model, position, {0, 1, 0}, 0, size, WHITE);
-    UnloadModel(model);
-}
-
-static void DrawFurniture(Texture2D wood, Texture2D cloth, Texture2D metal) {
-    DrawTexturedBox(wood, {-7.2f, 0.75f, 2.5f}, {3.0f, 0.9f, 1.2f});
-    DrawTexturedBox(wood, {7.1f, 1.0f, 3.1f}, {2.0f, 2.0f, 0.7f});
-    DrawTexturedBox(cloth, {-7.2f, 1.0f, 12.5f}, {2.2f, 2.0f, 0.7f});
-    DrawTexturedBox(metal, {6.8f, 0.7f, 12.7f}, {1.3f, 1.4f, 1.3f});
-}
-
-int main() {
-    SetConfigFlags(FLAG_MSAA_4X_HINT);
-    InitWindow(1280, 720, "Night House | C++ / CMake");
-    InitAudioDevice();
-    SetTargetFPS(60);
-    DisableCursor();
-
-    Texture2D wall = MakeTexture({76,70,62,255}, {113,96,76,255}, 3);
-    Texture2D wood = MakeTexture({54,34,24,255}, {91,59,38,255}, 8);
-    Texture2D metal = MakeTexture({52,55,55,255}, {115,116,106,255}, 13);
-    Texture2D cloth = MakeTexture({65,65,66,255}, {105,100,92,255}, 21);
-
-    Sound pickup = MakeTone(0.18f, 740.0f, 0.35f);
-    Sound door = MakeTone(0.45f, 90.0f, 0.45f);
-    Sound heartbeat = MakeTone(0.16f, 55.0f, 0.5f);
-    Sound attack = MakeTone(0.6f, 38.0f, 0.8f);
-    Sound creak = MakeTone(0.8f, 145.0f, 0.25f);
-
-    std::vector<Wall> walls = {
-        {{-9.6f,1.5f,7},{0.7f,3,18}}, {{9.6f,1.5f,7},{0.7f,3,18}},
-        {{0,1.5f,-2},{20,3,0.7f}}, {{0,1.5f,16},{20,3,0.7f}},
-        {{-6,1.5f,5},{7,3,0.7f}}, {{5.5f,1.5f,5},{8,3,0.7f}},
-        {{-7,1.5f,10},{5,3,0.7f}}, {{5.5f,1.5f,11},{8,3,0.7f}},
-        {{-4,1.5f,1.8f},{0.7f,3,4}}, {{4,1.5f,1.8f},{0.7f,3,4}},
-        {{0,1.5f,8},{0.7f,3,6}}
-    };
-
-    std::vector<Fuse> fuses = {{{-7.5f,0.9f,2.8f}}, {{6.8f,0.9f,7.8f}}, {{2.8f,0.9f,14.0f}}};
-    Camera3D camera{};
-    camera.position = {0,1.65f,13.5f};
-    camera.up = {0,1,0}; camera.fovy = 70; camera.projection = CAMERA_PERSPECTIVE;
-    float yaw = PI, pitch = 0, stamina = 1;
-    Vector3 granny = {0,1,12}, target = granny;
-    int collected = 0;
-    bool hiding = false, dead = false, won = false, doorOpen = false;
-    float messageTime = 4;
-
-    auto reset = [&]() {
-        camera.position = {0,1.65f,13.5f}; yaw = PI; pitch = 0;
-        granny = {0,1,12}; target = granny; collected = 0; stamina = 1;
-        hiding = false; dead = false; won = false; doorOpen = false; messageTime = 4;
-        for (auto& fuse : fuses) fuse.got = false;
-    };
-
-    while (!WindowShouldClose()) {
-        float dt = std::min(GetFrameTime(), 0.05f);
-        Vector3 forward = {std::sin(yaw),0,std::cos(yaw)};
-        Vector3 right = {std::cos(yaw),0,-std::sin(yaw)};
-
-        if (dead || won) {
-            BeginDrawing();
-            ClearBackground(dead ? Color{20,3,5,255} : Color{7,30,12,255});
-            DrawText(dead ? "SHE FOUND YOU" : "YOU ESCAPED", 390, 260, 60, RAYWHITE);
-            DrawText(dead ? "The house was not empty." : "The front door is finally open.", 400, 335, 22, Color{190,190,190,255});
-            DrawText("ENTER: restart", 520, 410, 20, RAYWHITE);
-            EndDrawing();
-            if (IsKeyPressed(KEY_ENTER)) reset();
-            continue;
-        }
-
-        Vector2 mouse = GetMouseDelta();
-        yaw += mouse.x * 0.0025f;
-        pitch = Clamp(pitch - mouse.y * 0.0022f, -1.35f, 1.35f);
-        forward = {std::sin(yaw),0,std::cos(yaw)};
-        right = {std::cos(yaw),0,-std::sin(yaw)};
-        camera.target = Vector3Add(camera.position, {std::sin(yaw)*std::cos(pitch), std::sin(pitch), std::cos(yaw)*std::cos(pitch)});
-
-        bool sprinting = IsKeyDown(KEY_LEFT_SHIFT) && stamina > 0.03f && !hiding;
-        float speed = sprinting ? 4.7f : 2.6f;
-        if (sprinting) stamina = std::max(0.0f, stamina - dt * 0.32f);
-        else stamina = std::min(1.0f, stamina + dt * 0.2f);
-
-        Vector3 movement{};
-        if (IsKeyDown(KEY_W)) movement = Vector3Add(movement, forward);
-        if (IsKeyDown(KEY_S)) movement = Vector3Subtract(movement, forward);
-        if (IsKeyDown(KEY_D)) movement = Vector3Add(movement, right);
-        if (IsKeyDown(KEY_A)) movement = Vector3Subtract(movement, right);
-        if (Vector3Length(movement) > 0.001f) movement = Vector3Scale(Vector3Normalize(movement), speed * dt);
-        if (IsKeyPressed(KEY_E)) hiding = !hiding;
-        if (!hiding) MoveWithCollision(camera.position, movement, 0.34f, walls);
-
-        for (auto& fuse : fuses) {
-            if (!fuse.got && FlatDistance(camera.position, fuse.p) < 1.15f) {
-                fuse.got = true; collected++; messageTime = 2.5f; PlaySound(pickup);
-            }
-        }
-        if (collected == 3 && FlatDistance(camera.position, {0,1,-1.3f}) < 1.7f && IsKeyPressed(KEY_E)) {
-            doorOpen = true; PlaySound(door); won = true;
-        }
-
-        float grannyDistance = FlatDistance(granny, camera.position);
-        bool alert = grannyDistance < 9.0f || (sprinting && grannyDistance < 15.0f);
-        if (alert && !hiding) target = camera.position;
-        else if (FlatDistance(granny, target) < 0.8f || GetRandomValue(0,120) == 0)
-            target = {(float)GetRandomValue(-7,7), 1, (float)GetRandomValue(2,14)};
-
-        Vector3 enemyMove = Vector3Subtract(target, granny); enemyMove.y = 0;
-        if (Vector3Length(enemyMove) > 0.1f) {
-            enemyMove = Vector3Scale(Vector3Normalize(enemyMove), (alert ? 2.65f : 1.0f) * dt);
-            MoveWithCollision(granny, enemyMove, 0.45f, walls);
-        }
-
-        if (grannyDistance < 1.0f && !hiding) {
-            dead = true; SpatialSound(attack, granny, camera.position, right); PlaySound(attack);
-        }
-        if (grannyDistance < 6.0f && !hiding && GetRandomValue(0,45) == 0) {
-            SpatialSound(heartbeat, granny, camera.position, right); PlaySound(heartbeat);
-        }
-        if (GetRandomValue(0,240) == 0) {
-            Vector3 source = {(float)GetRandomValue(-8,8),1,(float)GetRandomValue(1,15)};
-            SpatialSound(creak, source, camera.position, right); PlaySound(creak);
-        }
-
-        BeginDrawing();
-        ClearBackground({7,7,9,255});
-        BeginMode3D(camera);
-        DrawPlane({0,0,7}, {20,22}, {47,43,38,255});
-        for (const auto& wall : walls) {
-            DrawCube(wall.p, wall.s.x, wall.s.y, wall.s.z, {48,43,38,255});
-            DrawCubeWires(wall.p, wall.s.x, wall.s.y, wall.s.z, {20,18,17,255});
-        }
-        DrawFurniture(wood, cloth, metal);
-        if (!doorOpen) {
-            DrawCube({0,1.5f,-1.25f}, 2.2f, 3, 0.25f, {70,42,28,255});
-            DrawSphere({0.55f,1.5f,-1.05f}, 0.09f, {180,150,70,255});
-        }
-        for (const auto& fuse : fuses) if (!fuse.got) {
-            float pulse = 0.11f + 0.025f * std::sin((float)GetTime() * 5.0f);
-            DrawCylinder(fuse.p, 0.16f, 0.16f, 0.42f, 12, {210,205,175,255});
-            DrawSphere({fuse.p.x,fuse.p.y+0.23f,fuse.p.z}, pulse, {240,230,150,255});
-        }
-        DrawCylinder({granny.x,1.78f,granny.z}, 0.43f, 0.43f, 0.95f, 12, {70,63,60,255});
-        DrawSphere({granny.x,2.48f,granny.z}, 0.4f, {155,132,112,255});
-        DrawSphere({granny.x-0.14f,2.53f,granny.z-0.34f}, 0.055f, {18,8,7,255});
-        DrawSphere({granny.x+0.14f,2.53f,granny.z-0.34f}, 0.055f, {18,8,7,255});
+int main(){
+    SetConfigFlags(FLAG_MSAA_4X_HINT); InitWindow(1280,720,"Night House"); InitAudioDevice(); SetTargetFPS(60); DisableCursor();
+    Texture2D wall=Tex({70,66,60,255},{103,89,70,255},3), wood=Tex({52,32,22,255},{91,58,35,255},8), metal=Tex({48,50,49,255},{105,107,98,255},13), cloth=Tex({60,59,58,255},{102,94,83,255},21);
+    Sound pickup=Tone(.16f,740,.3f), door=Tone(.5f,75,.45f), heartbeat=Tone(.12f,55,.5f), attack=Tone(.55f,38,.8f), creak=Tone(.75f,145,.22f), step=Tone(.08f,95,.18f);
+    std::vector<Wall> walls={{{-9.6f,1.5f,7},{.7f,3,18}},{{9.6f,1.5f,7},{.7f,3,18}},{{0,1.5f,-2},{20,3,.7f}},{{0,1.5f,16},{20,3,.7f}},{{-6,1.5f,5},{7,3,.7f}},{{5.5f,1.5f,5},{8,3,.7f}},{{-7,1.5f,10},{5,3,.7f}},{{5.5f,1.5f,11},{8,3,.7f}},{{-4,1.5f,1.8f},{.7,3,4}},{{4,1.5f,1.8f},{.7,3,4}},{{0,1.5f,8},{.7,3,6}}};
+    std::vector<Fuse> fuses={{{-7.5f,.9f,2.8f}},{{6.8f,.9f,7.8f}},{{2.8f,.9f,14}}};
+    Camera3D cam{}; cam.position={0,1.65f,13.5f}; cam.up={0,1,0}; cam.fovy=72; cam.projection=CAMERA_PERSPECTIVE;
+    float yaw=0,pitch=0,stamina=1,enemyPause=0; Vector3 enemy={0,1,10},target=enemy,lastSeen={0,0,0}; int got=0; bool hiding=false,dead=false,won=false; float msg=5;
+    auto reset=[&](){cam.position={0,1.65f,13.5f};yaw=0;pitch=0;stamina=1;enemy={0,1,10};target=enemy;got=0;hiding=dead=won=false;msg=5;for(auto&f:fuses)f.got=false;};
+    while(!WindowShouldClose()){
+        float dt=std::min(GetFrameTime(),.05f);
+        if(dead||won){BeginDrawing();ClearBackground(dead?Color{17,3,5,255}:Color{5,22,10,255});DrawText(dead?"SHE FOUND YOU":"YOU ESCAPED",dead?400:430,255,58,RAYWHITE);DrawText(dead?"You should have heard her coming.":"The front door opens into the night.",dead?420:410,330,20,{185,185,185,255});DrawText("ENTER  -  restart",500,405,20,RAYWHITE);EndDrawing();if(IsKeyPressed(KEY_ENTER))reset();continue;}
+        Vector2 md=GetMouseDelta(); yaw-=md.x*.0024f; pitch=Clamp(pitch-md.y*.0020f,-1.2f,1.2f);
+        Vector3 forward={sin(yaw),0,cos(yaw)},right={-cos(yaw),0,sin(yaw)};
+        cam.target=Vector3Add(cam.position,{sin(yaw)*cos(pitch),sin(pitch),cos(yaw)*cos(pitch)});
+        bool sprint=IsKeyDown(KEY_LEFT_SHIFT)&&stamina>.04f&&!hiding; float speed=sprint?4.0f:2.35f; if(sprint)stamina=std::max(0.f,stamina-dt*.3f);else stamina=std::min(1.f,stamina+dt*.22f);
+        Vector3 mv{};if(IsKeyDown(KEY_W))mv=Vector3Add(mv,forward);if(IsKeyDown(KEY_S))mv=Vector3Subtract(mv,forward);if(IsKeyDown(KEY_D))mv=Vector3Add(mv,right);if(IsKeyDown(KEY_A))mv=Vector3Subtract(mv,right);if(Vector3Length(mv)>.01f)Move(cam.position,Vector3Scale(Vector3Normalize(mv),speed*dt),.34f,walls);
+        if(IsKeyPressed(KEY_E))hiding=!hiding;
+        for(auto&f:fuses)if(!f.got&&Dist(cam.position,f.p)<1.15f){f.got=true;got++;msg=2.5f;PlaySound(pickup);}
+        if(got==3&&cam.position.z<0&&IsKeyPressed(KEY_E))won=true;
+        float ed=Dist(enemy,cam.position); bool visible=ed<7.0f; bool alert=visible|| (sprint&&ed<11.0f); if(hiding)alert=false;
+        if(alert){target=cam.position;lastSeen=cam.position;enemyPause=1.5f;}else if(enemyPause>0)enemyPause-=dt;else if(Dist(enemy,target)<.8f||GetRandomValue(0,150)==0)target={(float)GetRandomValue(-7,7),1,(float)GetRandomValue(1,14)};
+        Vector3 ev=Vector3Subtract(target,enemy);ev.y=0;if(Vector3Length(ev)>.1f){float es=alert?2.15f:0.72f;Move(enemy,Vector3Scale(Vector3Normalize(ev),es*dt),.43f,walls);}
+        if(ed<1.05f&&!hiding){dead=true;PlaySound(attack);}
+        if(ed<5.5f&&!hiding&&GetRandomValue(0,55)==0)PlaySound(heartbeat);
+        if(GetRandomValue(0,300)==0)PlaySound(creak);
+        BeginDrawing(); ClearBackground({5,6,8,255}); BeginMode3D(cam);
+        DrawPlane({0,0,7},{20,22},{43,40,35,255});
+        for(const auto&w:walls){DrawCube(w.p,w.s.x,w.s.y,w.s.z,{55,51,45,255});DrawCubeWires(w.p,w.s.x,w.s.y,w.s.z,{24,22,20,255});}
+        for(int z=0;z<18;z+=2)DrawCube({0,.025f,(float)z},{18,0.04f,.025f}.x, .04f,.025f,{28,24,20,255});
+        Furniture(wood,cloth,metal); Lamp({-6,2.8f,1.5f}); Lamp({6,2.8f,7}); Lamp({-2,2.8f,14});
+        if(got<3){DrawCube({0,1.5f,-1.25f},2.2f,3,.25f,{65,39,26,255});DrawSphere({.55f,1.5f,-1.05f},.09f,{190,155,65,255});}
+        for(const auto&f:fuses)if(!f.got){DrawCylinder(f.p,.16f,.16f,.42f,12,{215,208,175,255});DrawSphere({f.p.x,f.p.y+.23f,f.p.z},.13f,{235,220,120,255});}
+        DrawCylinder({enemy.x,1.7f,enemy.z},.48f,.58f,1.05f,16,{67,57,55,255});DrawSphere({enemy.x,2.45f,enemy.z},.43f,{145,120,103,255});DrawSphere({enemy.x-.15f,2.51f,enemy.z-.37f},.065f,{15,5,5,255});DrawSphere({enemy.x+.15f,2.51f,enemy.z-.37f},.065f,{15,5,5,255});
         EndMode3D();
-
-        DrawRectangle(0,0,1280,78,{0,0,0,150});
-        DrawText("NIGHT HOUSE",25,16,26,RAYWHITE);
-        DrawText(TextFormat("FUSES %d / 3", collected),28,48,17,{200,195,180,255});
-        DrawText("WASD move   SHIFT sprint   E hide/interact",370,23,17,{175,175,175,255});
-        DrawRectangle(1010,23,210,12,{30,30,30,230});
-        DrawRectangle(1010,23,(int)(210*stamina),12,RAYWHITE);
-        if (collected == 3) DrawText("The front door can be opened",430,650,22,{235,220,170,255});
-        if (hiding) DrawText("HIDING",580,690,18,{190,190,190,255});
-        if (messageTime > 0) {
-            DrawText("Find the three fuses. Do not let her hear you.",355,105,19,{210,200,180,255});
-            messageTime -= dt;
-        }
+        DrawRectangle(0,0,1280,82,{0,0,0,165}); DrawText(TextFormat("FUSES  %d / 3",got),35,25,25,RAYWHITE);DrawText("WASD  move   SHIFT  run   E  hide / escape",35,53,17,{170,170,170,255});
+        DrawRectangle(1030,28,190,13,{30,30,30,255});DrawRectangle(1030,28,(int)(190*stamina),13,{185,185,185,255});DrawText("STAMINA",1030,48,13,{155,155,155,255});
+        if(msg>0){msg-=dt;DrawText(got<3?"Find the three fuses.":"All fuses found. Reach the front door and press E.",360,650,20,RAYWHITE);} if(hiding)DrawText("HIDING",570,115,20,{190,190,190,255});
         EndDrawing();
     }
-
-    UnloadTexture(wall); UnloadTexture(wood); UnloadTexture(metal); UnloadTexture(cloth);
-    UnloadSound(pickup); UnloadSound(door); UnloadSound(heartbeat); UnloadSound(attack); UnloadSound(creak);
-    CloseAudioDevice(); CloseWindow();
-    return 0;
+    UnloadTexture(wall);UnloadTexture(wood);UnloadTexture(metal);UnloadTexture(cloth);CloseAudioDevice();CloseWindow();return 0;
 }
