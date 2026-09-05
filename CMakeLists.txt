@@ -12,7 +12,7 @@ FetchContent_Declare(raylib
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(raylib)
-add_executable(granny_house src/game5.cpp)
+add_executable(granny_house src/game4.cpp)
 target_link_libraries(granny_house PRIVATE raylib)
 if(WIN32)
   target_compile_definitions(granny_house PRIVATE _CRT_SECURE_NO_WARNINGS)
